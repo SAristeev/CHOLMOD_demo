@@ -1,0 +1,27 @@
+﻿{
+  "configurations": [
+    {
+      "name": "x64-Debug",
+      "generator": "Ninja",
+      "configurationType": "Debug",
+      "inheritEnvironments": [ "msvc_x64_x64" ],
+      "buildRoot": "${projectDir}\\out\\build\\${name}",
+      "installRoot": "${projectDir}\\out\\install\\${name}",
+      "cmakeCommandArgs": "",
+      "buildCommandArgs": "",
+      "ctestCommandArgs": "",
+      "variables": [
+        {
+          "name": "SuiteSparse_DIR",
+          "value": "C:/SP_install/lib/cmake/suitesparse-5.4.0",
+          "type": "PATH"
+        },
+        {
+          "name": "LAPACK_DIR",
+          "value": "C:/SP_ROOT/lapack_windows/x64",
+          "type": "PATH"
+        }
+      ]
+    }
+  ]
+}
