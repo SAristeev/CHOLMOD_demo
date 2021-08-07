@@ -15,9 +15,6 @@
 #define MIN(a,b) (((a) < (b)) ? (a) : (b))
 #define ABS(a)   (((a) >= (0)) ? (a) : -(a))
 
-#define ENABLE_CUDA 1
-#define DISABLE_CUDA 0
-
 
 #if defined(_WIN32)
 #if !defined(WIN32_LEAN_AND_MEAN)
