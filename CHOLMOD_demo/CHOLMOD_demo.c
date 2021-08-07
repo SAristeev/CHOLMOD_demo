@@ -8,7 +8,7 @@
 
 #include "CHOLMOD_demo.h"
 
-void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int CUDA_support, int PRINT_DEFAULT, int PRINT_TIME) {
+void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int PRINT_DEFAULT, int PRINT_TIME) {
     double start, stop, elapsedTime;
     cholmod_sparse* A;
     cholmod_dense* X = NULL, * B, * W, * R = NULL;
@@ -26,9 +26,7 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int CUDA_support, int PR
 
     cholmod_common* cm = (cholmod_common*)malloc(sizeof(cholmod_common));
     cholmod_l_start(cm);
-    if (CUDA_support) {
-        cm->useGPU = 1;
-    }
+    cm->useGPU = 1;
 
     /* ---------------------------------------------------------------------- */
     /* create basic scalars */
@@ -62,10 +60,7 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int CUDA_support, int PR
     /* ---------------------------------------------------------------------- */
     /* read vector B */
     /* ---------------------------------------------------------------------- */
-    B = cholmod_l_ones(A->nrow, 1, A->xtype, cm);   /* b = ones(n,1) */
-    if (0){
-        B = cholmod_l_read_dense(inB, cm);
-    }
+    B = cholmod_l_read_dense(inB, cm);
     cholmod_l_print_dense(B, "B", cm);
     Bx = B->x;
     bnorm = 1;
@@ -416,7 +411,7 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int CUDA_support, int PR
 
 int main() {
     FILE* inA, * inB;
-    inA = fopen("../input/fidapm11.mtx", "r");
+    inA = fopen("../input/A.tri", "r");
     inB = fopen("../input/B.vec", "r");
     if (inA == NULL || inB == NULL) {
         printf("Can't read input files");
@@ -427,11 +422,11 @@ int main() {
     SuiteSparse_version(ver);
     printf("SuiteSparse version %d.%d.%d\n", ver[0], ver[1], ver[2]);
     printf("\n---------------------------------- cholmod_test_1:\n");
-    cholmod_test(inA, inB, 0, ENABLE_CUDA, 1, 1);
+    cholmod_test(inA, inB, 0, 1, 1);
     printf("\n---------------------------------- cholmod_test_2:\n");
     rewind(inA);
     rewind(inB);
-    cholmod_test(inA, inB,0, DISABLE_CUDA, 1, 1);
+    cholmod_test(inA, inB, 1, 1, 1);
     printf("\n---------------------------------- cholmod_test_3:\n");
     //rewind(inA);
     //rewind(inB);
