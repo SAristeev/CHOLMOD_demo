@@ -13,7 +13,7 @@
       "variables": [
         {
           "name": "SuiteSparse_DIR",
-          "value": "C:/SP_install/lib/cmake/suitesparse-5.4.0",
+          "value": "C:\\SP_BUILD\\install\\lib\\cmake\\suitesparse-5.4.0",
           "type": "PATH"
         },
         {
