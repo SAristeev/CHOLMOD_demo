@@ -1,18 +1,15 @@
 ﻿#include "cholmod.h"
-#include "cholmod_function.h"
-#include <stdlib.h>
-
 #include "CHOLMOD_demo.h"
 
-void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int PRINT_DEFAULT, int PRINT_TIME) {
-    double start, stop, elapsedTime;
+void cholmod_test(FILE* inA, FILE* inB, FILE * outX, FILE* FID, int SOLVER_VER, FILE * log) {
+    double startTime, analyzeTime, factorizeTime, solveTime, stopTime;
     cholmod_sparse* A;
-    cholmod_dense* X = NULL, * B = NULL, * W, * R = NULL;
+    cholmod_dense* X = NULL, * B = NULL, * W, * R = NULL, * fid_X = NULL;
     cholmod_factor* L;
-    double* Bx, * Xx, * Rx;
+    double* Bx, * Xx, * Rx, *Fx;
     double resid, resid2, t, ta, tf, ts, tot, anorm, bnorm, rcond, anz, xnorm, rnorm, rnorm2,
-        axbnorm, fl;
-    double one[2], zero[2], minusone[2], beta[2], xlnz;
+        axbnorm;
+    double one[2], zero[2], minusone[2], beta[2];
     int n, isize, xsize, xtype, s, ss, lnz;
     int L_is_super;
 
@@ -46,58 +43,42 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int PRINT_DEFAULT, int P
     xtype = A->xtype;
     anorm = 1;
     n = A->nrow;
-#ifndef NMATRIXOPS
     anorm = cholmod_l_norm_sparse(A, 0, cm);
-    printf("norm (A,inf) = %g\n", anorm);
-    printf("norm (A,1)   = %g\n", cholmod_l_norm_sparse(A, 1, cm));
-#endif
+  
+    fprintf(log, "norm (A,inf)             --- %g\n", anorm);
+    fprintf(log, "norm (A,1)               --- %g\n", cholmod_l_norm_sparse(A, 1, cm));
+
     cholmod_l_print_sparse(A, "A", cm);
 
     /* ---------------------------------------------------------------------- */
     /* read vector B */
     /* ---------------------------------------------------------------------- */
-    B = cholmod_l_ones(A->nrow, 1.0, A->xtype, cm);   /* b = ones(n,1) */
-    //B = cholmod_l_read_dense(inB, cm);
+
+    //B = cholmod_l_ones(A->nrow, 1.0, A->xtype, cm);   /* b = ones(n,1) */
+    B = cholmod_l_read_dense(inB, cm);
     cholmod_l_print_dense(B, "B", cm);
     Bx = B->x;
-    bnorm = 1;
-#ifndef NMATRIXOPS
     bnorm = cholmod_l_norm_dense(B, 0, cm);	/* max norm */
-    printf("bnorm %g\n", bnorm);
-#endif
+    fprintf(log, "bnorm                    --- %g\n", bnorm);
 
     /* ---------------------------------------------------------------------- */
     /* analyze and factorize */
     /* ---------------------------------------------------------------------- */
 
-    start = second();
-    t = CPUTIME;
+    startTime = second();
     L = cholmod_l_analyze(A, cm);
-    ta = CPUTIME - t;
-    ta = MAX(ta, 0);
-    
-    printf("Analyze: flop %g lnz %g\n", cm->fl, cm->lnz);
+    analyzeTime = second();
 
     if (A->stype == 0)
-    {
-        printf("Factorizing A*A'+beta*I\n");
-        t = CPUTIME;
         cholmod_l_factorize_p(A, beta, NULL, 0, L, cm);
-        tf = CPUTIME - t;
-        tf = MAX(tf, 0);
-    }
     else
-    {
-        printf("Factorizing A\n");
-        t = CPUTIME;
         cholmod_l_factorize(A, L, cm);
-        tf = CPUTIME - t;
-        tf = MAX(tf, 0);
-    }
+    factorizeTime = second();
 
     cholmod_l_print_factor(L, "L", cm);
 
     /* determine the # of integers's and reals's in L.  See cholmod_free */
+
     if (L->is_super)
     {
         s = L->nsuper + 1;
@@ -125,6 +106,7 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int PRINT_DEFAULT, int P
             + n + 2	/* L->next, link list */
             + n + 2;	/* L->prev, link list */
     }
+
     rcond = cholmod_l_rcond(L, cm);
     L_is_super = L->is_super;
 
@@ -132,144 +114,40 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int PRINT_DEFAULT, int P
     /* solve */
     /* ---------------------------------------------------------------------- */
 
+    solveTime = second();
     
     if (SOLVER_VER == 0) {
         /* basic solve */
-        t = CPUTIME;
         X = cholmod_l_solve(CHOLMOD_A, L, B, cm);
-        ts = CPUTIME - t;
-        ts = MAX(ts, 0);
     }
 
-    else if (SOLVER_VER == 1) {
+    else {
         /* solve with reused workspace */
         cholmod_dense* Ywork = NULL, * Ework = NULL;
-        t = CPUTIME;
         cholmod_l_solve2(CHOLMOD_A, L, B, NULL, &X, NULL,
             &Ywork, &Ework, cm);
         cholmod_l_free_dense(&Ywork, cm);
         cholmod_l_free_dense(&Ework, cm);
-        ts = CPUTIME - t;
     }
-    else {
-        /* solve with reused workspace and sparse Bset */
-        cholmod_dense* Ywork = NULL, * Ework = NULL;
-        cholmod_dense* X2 = NULL, * B2 = NULL;
-        cholmod_sparse* Bset, * Xset = NULL;
-        int* Bsetp, * Bseti, * Xsetp, * Xseti, xlen, j, k, * Lnz;
-        double* X1x, * X2x, * B2x, err;
-        FILE* timelog = fopen("timelog.m", "w");
-        if (timelog) fprintf(timelog, "results = [\n");
 
-        B2 = cholmod_l_zeros(n, 1, xtype, cm);
-        B2x = B2->x;
+    stopTime = second();
 
-        Bset = cholmod_l_allocate_sparse(n, 1, 1, FALSE, TRUE, 0,
-            CHOLMOD_PATTERN, cm);
-        Bsetp = Bset->p;
-        Bseti = Bset->i;
-        Bsetp[0] = 0;     /* nnz(B) is 1 (it can be anything) */
-        Bsetp[1] = 1;
-        resid = 0;
+    fprintf(log, "bnorm                    --- %g\n", bnorm);
 
-        for (int i = 0; i < n; i++)
-        {
-            /* B (i) is nonzero, all other entries are ignored
-               (implied to be zero) */
-            Bseti[0] = i;
-            if (xtype == CHOLMOD_REAL)
-            {
-                B2x[i] = Bx[i];
-            }
-
-            /* first get the entire solution, to compare against */
-            cholmod_l_solve2(CHOLMOD_A, L, B2, NULL, &X, NULL,
-                &Ywork, &Ework, cm);
-
-            /* now get the sparse solutions; this will change L from
-               supernodal to simplicial */
-
-            if (i == 0)
-            {
-                /* first solve can be slower because it has to allocate
-                   space for X2, Xset, etc, and change L.
-                   So don't time it */
-                cholmod_l_solve2(CHOLMOD_A, L, B2, Bset, &X2, &Xset,
-                    &Ywork, &Ework, cm);
-            }
-
-            t = CPUTIME;
-            /* solve Ax=b but only to get x(i).
-                b is all zero except for b(i).
-                This takes O(xlen) time */
-            cholmod_l_solve2(CHOLMOD_A, L, B2, Bset, &X2, &Xset,
-                &Ywork, &Ework, cm);
-            t = CPUTIME - t;
-            t = MAX(t, 0);
-            ts = CPUTIME - t;
-            
-
-            /* check the solution and log the time */
-            Xsetp = Xset->p;
-            Xseti = Xset->i;
-            xlen = Xsetp[1];
-            X1x = X->x;
-            X2x = X2->x;
-            Lnz = L->nz;
-
-            /*
-            printf ("\ni %d xlen %d  (%p %p)\n", i, xlen, X1x, X2x) ;
-            */
-
-            if (xtype == CHOLMOD_REAL)
-            {
-                fl = 2 * xlen;
-                for (k = 0; k < xlen; k++)
-                {
-                    j = Xseti[k];
-                    fl += 4 * Lnz[j];
-                    err = X1x[j] - X2x[j];
-                    err = ABS(err);
-                    resid = MAX(resid, err);
-                }
-            }
-            if (timelog) fprintf(timelog, "%g %g %g %g\n",
-                (double)i, (double)xlen, fl, t);
-
-            /* clear B for the next test */
-            if (xtype == CHOLMOD_REAL)
-            {
-                B2x[i] = 0;
-            }
-        }
-
-        if (timelog)
-        {
-            fprintf(timelog, "] ; resid = %g ;\n", resid);
-            fprintf(timelog, "lnz = %g ;\n", cm->lnz);
-            //fprintf(timelog, "t = %g ;   %% dense solve time\n", ts[2]);
-            fclose(timelog);
-        }
-
-#ifndef NMATRIXOPS
-        //resid = resid / cholmod_l_norm_dense(X, 1, cm);
-#endif
-
-        cholmod_l_free_dense(&Ywork, cm);
-        cholmod_l_free_dense(&Ework, cm);
-        cholmod_l_free_dense(&X2, cm);
-        cholmod_l_free_dense(&B2, cm);
-        cholmod_l_free_sparse(&Xset, cm);
-        cholmod_l_free_sparse(&Bset, cm);
-
+    Xx = X->x;
+    rewind(FID);
+    fid_X = cholmod_l_read_dense(FID, cm);
+    Fx = fid_X->x;
+    for (int i = 0; i < n; i++)
+    {
+        Fx[i] = Fx[i] - Xx[i];
     }
-    stop = second();
-    tot = ta + tf + ts;
+    
+    fprintf(log, "|Fid(X)-X|               --- %8.2e\n", cholmod_l_norm_dense(fid_X, 0, cm));
+
     /* ------------------------------------------------------------------ */
     /* compute the residual */
     /* ------------------------------------------------------------------ */
-
-#ifndef NMATRIXOPS
 
     if (A->stype == 0)
     {
@@ -281,7 +159,7 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int PRINT_DEFAULT, int P
         cholmod_l_free_dense(&R, cm);
         R = cholmod_l_zeros(n, 1, xtype, cm);
         Rx = R->x;
-        Xx = X->x;
+        
         if (xtype == CHOLMOD_REAL)
         {
             for (int i = 0; i < n; i++)
@@ -306,15 +184,12 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int PRINT_DEFAULT, int P
     xnorm = cholmod_l_norm_dense(X, 0, cm);	    /* max abs. entry */
     axbnorm = (anorm * xnorm + bnorm + ((n == 0) ? 1 : 0));
     resid = rnorm / axbnorm;
-#else
-    printf("residual not computed (requires CHOLMOD/MatrixOps)\n");
-#endif
+
     /* ---------------------------------------------------------------------- */
     /* iterative refinement (real symmetric case only) */
     /* ---------------------------------------------------------------------- */
 
     resid2 = -1;
-#ifndef NMATRIXOPS
     if (A->stype != 0 && A->xtype == CHOLMOD_REAL)
     {
         cholmod_dense* R2;
@@ -322,7 +197,7 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int PRINT_DEFAULT, int P
         /* R2 = A\(B-A*X) */
         R2 = cholmod_l_solve(CHOLMOD_A, L, R, cm);
         /* compute X = X + A\(B-A*X) */
-        Xx = X->x;
+        
         Rx = R2->x;
         for (int i = 0; i < n; i++)
         {
@@ -338,8 +213,8 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int PRINT_DEFAULT, int P
         rnorm2 = cholmod_l_norm_dense(R, 0, cm);
         resid2 = rnorm2 / axbnorm;
     }
-#endif
 
+    cholmod_l_write_dense(outX, X, NULL, cm);
     cholmod_l_free_dense(&R, cm);
 
     /* ---------------------------------------------------------------------- */
@@ -347,90 +222,83 @@ void cholmod_test(FILE* inA, FILE* inB, int SOLVER_VER, int PRINT_DEFAULT, int P
     /* ---------------------------------------------------------------------- */
 
     anz = cm->anz;
-    if(PRINT_DEFAULT){
-        printf("ints in L: %15.0f, doubles in L: %15.0f\n",
-            (double)isize, (double)xsize);
-        printf("factor flops %g nnz(L) %15.0f (w/no amalgamation)\n",
-            cm->fl, cm->lnz);
-        if (A->stype == 0)
-        {
-            printf("nnz(A):    %15.0f\n", cm->anz);
-        }
-        else
-        {
-            printf("nnz(A*A'): %15.0f\n", cm->anz);
-        }
-        if (cm->lnz > 0)
-        {
-            printf("flops / nnz(L):  %8.1f\n", cm->fl / cm->lnz);
-        }
-        if (anz > 0)
-        {
-            printf("nnz(L) / nnz(A): %8.1f\n", cm->lnz / cm->anz);
-        }
-        printf("analyze cputime:  %12.4f\n", ta);
-        printf("factor  cputime:   %12.4f mflop: %8.1f\n", tf,
-            (tf == 0) ? 0 : (1e-6 * cm->fl / tf));
-        printf("solve   cputime:   %12.4f mflop: %8.1f\n", ts,
-            (ts == 0) ? 0 : (1e-6 * 4 * cm->lnz / ts));
-        printf("overall cputime:   %12.4f mflop: %8.1f\n",
-            tot, (tot == 0) ? 0 : (1e-6 * (cm->fl + 4 * cm->lnz) / tot));
-        printf("peak memory usage: %12.0f (MB)\n",
-            (double)(cm->memory_usage) / 1048576.);
-        printf("residual (|Ax-b|/(|A||x|+|b|)): %8.2e ", resid);
+    
 
-        printf("rcond    %8.1e\n\n", rcond);
+    fprintf(log, "Analyze   time           --- %8.6f seconds\n", analyzeTime - startTime);
+    fprintf(log, "Factorize time           --- %8.6f seconds\n", factorizeTime - analyzeTime);
+    fprintf(log, "Solve     time           --- %8.6f seconds\n", stopTime - solveTime);
+    fprintf(log, "All       time           --- %8.6f seconds\n", stopTime - startTime);
+    
+    if (A->stype == 0)
+        fprintf(log, "nnz(A):                  --- %10.6f\n", cm->anz);
+    else
+    {
+        fprintf(log, "nnz(A*A'):               --- %10.6f\n", cm->anz);
+    }
+    fprintf(log, "peak memory usage:           %12.0f (MB)\n", (double)(cm->memory_usage) / 1048576.);
+    fprintf(log, "residual |Ax-b|/(|A||x|+|b|):%8.2e\n ", resid);
 
-        if (L_is_super)
-        {
-            cholmod_l_gpu_stats(cm);
-        }
+    if (L_is_super)
+    {
+        cholmod_l_gpu_stats(cm);
     }
-    if (PRINT_TIME) {
-        elapsedTime = stop - start;
-        printf("all time CHOLMOD: analyze + factorize + solve = %10.6f sec\n", elapsedTime);
-    }
-    cholmod_l_free_factor(&L, cm);
-    cholmod_l_free_dense(&X, cm);
 
     /* ---------------------------------------------------------------------- */
     /* free matrices and finish CHOLMOD */
     /* ---------------------------------------------------------------------- */
 
+    cholmod_l_free_factor(&L, cm);
+    cholmod_l_free_dense(&X, cm);
+    cholmod_l_free_dense(&fid_X, cm);
     cholmod_l_free_sparse(&A, cm);
     cholmod_l_free_dense(&B, cm);
     cholmod_l_finish(cm);
+
+    rewind(inA);
+    rewind(inB);
 }
 
 
 
 
-
 int main() {
-    FILE* inA, * inB;
-    inA = fopen("../input/s3dkt3m2.mtx", "r");
+    FILE* inA, * inB, * outX1, *outX2,*FID,*log;
+    inA = fopen("../input/A.tri", "r");
     inB = fopen("../input/B.vec", "r");
-    if (inA == NULL || inB == NULL) {
+    outX1 = fopen("../output/X1.vec", "w");
+    outX2 = fopen("../output/X2.vec", "w");
+    FID = fopen("../input/X.vec", "r");
+    log = fopen("../log/CHOLMOD.log", "w");
+
+    if (inA == NULL || inB == NULL || FID == NULL) {
         printf("Can't read input files");
         return -1;
     }
     int ver[3];
-    printf("\n---------------------------------- cholmod_demo:\n");
     SuiteSparse_version(ver);
-    printf("SuiteSparse version %d.%d.%d\n", ver[0], ver[1], ver[2]);
-    printf("\n---------------------------------- cholmod_test_1:\n");
-    cholmod_test(inA, inB, 3, 1, 1);
-    printf("\n---------------------------------- cholmod_test_2:\n");
-    rewind(inA);
-    rewind(inB);
-    //cholmod_test(inA, inB, 1, 1, 1);
-    printf("\n---------------------------------- cholmod_test_3:\n");
-    //rewind(inA);
-    //rewind(inB);
-    //cholmod_test_3(inA, inB);
+    fprintf(log, "SuiteSparse version %d.%d.%d\n", ver[0], ver[1], ver[2]);
+
+    fprintf(log, "\nTest 1: Simple Solver\n");
+    cholmod_test(inA, inB, outX1, FID ,0, log);
+
+    fprintf(log, "\nTest 2: Solver with reused workspace\n");
+    cholmod_test(inA, inB, outX2, FID, 1, log);
+    
+    printf("\nDone\nSee info on 'log/CHOLMOD.log'\n");
+
     fclose(inA);
     fclose(inB);
+    fclose(outX1);
+    fclose(outX2);
+    fclose(log);
+    fclose(FID);
+
     inA = NULL;
     inB = NULL;
+    outX1 = NULL;
+    outX2 = NULL;
+    log = NULL;
+    FID = NULL;
+
     return 0;
 }

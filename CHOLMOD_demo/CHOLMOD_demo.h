@@ -1,20 +1,11 @@
-#define TRUE 1
-#define FALSE 0
+#pragma once
 
 #define USE_GPU 1
-
 #if USE_GPU
 #define CHOLMOD(x) cholmod_l_##x
 #else
 #define CHOLMOD(x) cholmod_##x
 #endif
-
-#define CPUTIME (SuiteSparse_time ( ))
-
-#define MAX(a,b) (((a) > (b)) ? (a) : (b))
-#define MIN(a,b) (((a) < (b)) ? (a) : (b))
-#define ABS(a)   (((a) >= (0)) ? (a) : -(a))
-
 
 #if defined(_WIN32)
 #if !defined(WIN32_LEAN_AND_MEAN)
